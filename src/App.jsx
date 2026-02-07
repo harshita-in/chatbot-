@@ -30,8 +30,8 @@ function App() {
 
     // Firestore Real-time Listener
     useEffect(() => {
-        if (!user) {
-            setMessages([]);
+        if (!user || user.isGuest) {
+            if (!user) setMessages([]);
             return;
         }
 
@@ -72,35 +72,61 @@ function App() {
         setIsLoading(true);
 
         try {
-            // 1. Save User Message to Firestore
-            const messagesRef = collection(db, 'users', user.uid, 'messages');
-            await addDoc(messagesRef, {
-                role: 'user',
-                content: textPayload,
-                attachment: imagePayload,
-                createdAt: serverTimestamp()
-            });
+            // 1. Save User Message to Firestore (Skip if Guest)
+            if (!user.isGuest) {
+                const messagesRef = collection(db, 'users', user.uid, 'messages');
+                await addDoc(messagesRef, {
+                    role: 'user',
+                    content: textPayload,
+                    attachment: imagePayload,
+                    createdAt: serverTimestamp()
+                });
+            } else {
+                // Local state update for Guest
+                setMessages(prev => [...prev, { role: 'user', content: textPayload, attachment: imagePayload }]);
+            }
 
             // 2. Get AI Response
-            // We pass local messages as history context.
-            const history = messages.map(m => ({ role: m.role, content: m.content }));
-            const response = await sendMessageToAI(textPayload, imagePayload, history);
+            let response;
+            if (user.isGuest) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                response = {
+                    role: 'assistant',
+                    content: `🤖 **Guest Mode:** I am simulating a response (no API call made). \n\nYou said: "${textPayload}"`
+                };
+            } else {
+                const history = messages.map(m => ({ role: m.role, content: m.content }));
+                response = await sendMessageToAI(textPayload, imagePayload, history);
+            }
 
-            // 3. Save AI Response to Firestore
-            await addDoc(messagesRef, {
-                role: response.role, // 'assistant'
-                content: response.content, // 'response text'
-                createdAt: serverTimestamp()
-            });
+            // 3. Save AI Response (Skip if Guest)
+            if (!user.isGuest) {
+                const messagesRef = collection(db, 'users', user.uid, 'messages');
+                await addDoc(messagesRef, {
+                    role: response.role, // 'assistant'
+                    content: response.content, // 'response text'
+                    createdAt: serverTimestamp()
+                });
+            } else {
+                // Local state update for Guest
+                setMessages(prev => [...prev, { role: response.role, content: response.content }]);
+            }
 
         } catch (e) {
             console.error(e);
-            const messagesRef = collection(db, 'users', user.uid, 'messages');
-            await addDoc(messagesRef, {
-                role: 'assistant',
-                content: "⚠️ **Error:** I couldn't get a response. \n\n1. Check your `VITE_GEMINI_API_KEY` in `.env`. \n2. Check your internet connection.",
-                createdAt: serverTimestamp()
-            });
+
+            const errorMsg = "⚠️ **Error:** I couldn't get a response.";
+
+            if (!user.isGuest) {
+                const messagesRef = collection(db, 'users', user.uid, 'messages');
+                await addDoc(messagesRef, {
+                    role: 'assistant',
+                    content: errorMsg,
+                    createdAt: serverTimestamp()
+                });
+            } else {
+                setMessages(prev => [...prev, { role: 'assistant', content: errorMsg }]);
+            }
         } finally {
             setIsLoading(false);
         }
@@ -131,6 +157,17 @@ function App() {
         }
     }
 
+    const handleGuestLogin = () => {
+        setUser({
+            uid: 'guest-' + Date.now(),
+            displayName: 'Guest User',
+            email: 'guest@example.com',
+            photoURL: null,
+            isGuest: true
+        });
+        setMessages([{ role: 'assistant', content: 'Hello! I am your AI assistant (Guest Mode). How can I help you today?' }]);
+    };
+
     if (authLoading) {
         return (
             <div className="flex h-screen items-center justify-center bg-slate-900 text-white">
@@ -158,7 +195,7 @@ function App() {
 
                     <button
                         onClick={handleLogin}
-                        className="w-full bg-white text-slate-900 font-semibold py-3.5 px-4 rounded-xl flex items-center justify-center gap-3 hover:bg-slate-50 transition-all hover:scale-[1.02] shadow-xl group"
+                        className="w-full bg-white text-slate-900 font-semibold py-3.5 px-4 rounded-xl flex items-center justify-center gap-3 hover:bg-slate-50 transition-all hover:scale-[1.02] shadow-xl group mb-3"
                     >
                         {/* Google Icon SVG */}
                         <svg className="w-5 h-5" viewBox="0 0 24 24">
@@ -169,6 +206,14 @@ function App() {
                         </svg>
                         Continue with Google
                         <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-slate-900 group-hover:translate-x-1 transition-all" />
+                    </button>
+
+                    <button
+                        onClick={handleGuestLogin}
+                        className="w-full bg-slate-800/50 text-slate-300 font-semibold py-3.5 px-4 rounded-xl flex items-center justify-center gap-3 hover:bg-slate-800 transition-all hover:scale-[1.02] border border-white/5"
+                    >
+                        <User size={20} />
+                        Continue as Guest
                     </button>
 
                     <div className="mt-8 text-center">
@@ -226,7 +271,7 @@ function App() {
                             <p className="text-xs text-slate-500 truncate">{user?.email}</p>
                         </div>
                     </div>
-                    <button onClick={logout} className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors">
+                    <button onClick={() => { logout(); setUser(null); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors">
                         <LogOut size={14} /> Sign Out
                     </button>
                 </div>

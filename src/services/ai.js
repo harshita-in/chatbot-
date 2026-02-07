@@ -3,10 +3,15 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
 export const sendMessageToAI = async (message, image, history) => {
+    // 1. Mock Mode Check
     if (!API_KEY || API_KEY.includes('PASTE_YOUR_API_KEY_HERE')) {
+        // Simulate network delay
+        await new Promise(resolve => setTimeout(resolve, 1500));
+
         return {
             role: 'assistant',
-            content: "Configuration Error: Please set your valid VITE_GEMINI_API_KEY in the .env file."
+            content: "🤖 **Guest Mode:** I am running in simulation mode because no valid API key was found.\n\nI can't truly " +
+                "understand your text, but I can tell you that you said: \"" + message + "\""
         };
     }
 
@@ -60,9 +65,12 @@ export const sendMessageToAI = async (message, image, history) => {
 
     } catch (error) {
         console.error("Gemini API Error:", error);
+
+        // Fallback to mock if API fails
         return {
             role: 'assistant',
-            content: "I'm unable to process that request right now. Please check your network connection or API key."
+            content: "🤖 **Guest Mode Fallback:** The AI service is unavailable (likely due to an invalid API key). \n\n" +
+                "Using simulation mode. You said: \"" + message + "\""
         };
     }
 };
